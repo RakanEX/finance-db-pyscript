@@ -155,10 +155,10 @@ dmypy.json
 cython_debug/
 
 
-.sqlite
-.csv
-.xls
-.xlsx
+*.sqlite
+*.csv
+*.xls
+*.xlsx
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
