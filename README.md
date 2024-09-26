@@ -37,7 +37,7 @@ Examples:
 Process a monthly file:
 ```
 python3 process_netsuite.py 'new month upload file.csv' --mode monthly -v
-
+```
 
 
 Process a dump file (containing multiple months):
