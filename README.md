@@ -10,7 +10,7 @@
 
 Basic usage:
 ```
-python gl_processor.py your_file.csv [options]
+python3 process_netsuite.py your_file.csv [options]
 ```
 
 Flags:
@@ -23,19 +23,25 @@ Flags:
 - `--db`: Specify the SQLite database file (default is "finance_db_ex.sqlite")
   Example: `python gl_processor.py file.csv --db my_database.sqlite`
 
+- `-v` or `--verbose`: Verbose -- will display logging
+
+
+
+Currently only takes in CSV files
+
+
+
 Examples:
+
 
 Process a monthly file:
 ```
-python gl_processor.py january_report.csv
+python3 process_netsuite.py 'new month upload file.csv' --mode monthly -v
+
+
+
+Process a dump file (containing multiple months):
+```
+python gl_processor.py 'Income Statement Dump from Netsuite (Holdings).csv' --mode dump
 ```
 
-Process a dump file:
-```
-python gl_processor.py big_dump_file.csv --mode dump
-```
-
-Use a custom database name:
-```
-python gl_processor.py february_report.csv --db feb_data.sqlite
-```
