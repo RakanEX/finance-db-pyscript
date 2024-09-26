@@ -1,11 +1,20 @@
 import pandas as pd
-import sqlite3
 from datetime import datetime
 from calendar import monthrange
 import argparse
 import os
 import sys
 import logging
+import psycopg2
+from psycopg2 import sql
+import getpass
+
+
+thost = "10.205.240.3"
+tdatabase = "postgres"
+tuser = "postgres"
+tpassword = getpass.getpass("Enter Database Password: ")
+tport = 5432
 
 
 def setup_logging(verbose):
@@ -136,10 +145,18 @@ def process_file_dump(filename, logger):
     return df
 
 
-def insert_into_db(df, db_path, logger):
-    logger.info(f"Inserting data into database: {db_path}")
+def insert_into_db(df, db_config, logger):
+    logger.info("Inserting data into database: finance-db-netsuite")
+    conn = None
     try:
-        conn = sqlite3.connect(db_path)
+        conn = psycopg2.connect(
+                host=thost,
+                database=tdatabase,
+                user=tuser,
+                password=tpassword,
+                port=tport,
+            )
+        
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -157,23 +174,27 @@ def insert_into_db(df, db_path, logger):
 
         data_to_insert = df.to_dict("records")
 
-        cursor.executemany(
-            """
-        INSERT OR IGNORE INTO GL_Table 
+        insert_query = sql.SQL("""
+        INSERT INTO GL_Table 
         (GL_Number, Description, Branch, Type, Date, Value)
-        VALUES (:GL_Number, :Description, :Branch, :Type, :Date, :Value)
-        """,
-            data_to_insert,
-        )
+        VALUES (%(GL_Number)s, %(Description)s, %(Branch)s, %(Type)s, %(Date)s, %(Value)s)
+        ON CONFLICT (GL_Number, Date, Branch, Value) DO NOTHING
+        """)
+
+        cursor.executemany(insert_query, data_to_insert)
 
         inserted_rows = cursor.rowcount
         conn.commit()
-        logger.info(f"{inserted_rows} new records inserted into {db_path}")
+        logger.info(
+            f"{inserted_rows} new records inserted into finance-db-netsuite"
+        )
 
-    except sqlite3.Error as e:
-        logger.error(f"SQLite error: {e}")
+    except psycopg2.Error as e:
+        logger.error(f"PostgreSQL error: {e}")
+        raise
     except Exception as e:
         logger.error(f"Error inserting data into database: {e}")
+        raise
     finally:
         if conn:
             conn.close()
