@@ -8,13 +8,28 @@ import logging
 import psycopg2
 from psycopg2 import sql
 import getpass
-
+import re
 
 thost = "10.205.240.3"
 tdatabase = "postgres"
 tuser = "postgres"
-tpassword = getpass.getpass("Enter Database Password: ")
 tport = 5432
+
+
+def extract_bracketed_word(text: str):
+    pattern = r"\((.*?)\)"
+    match = re.search(pattern, text)
+    if match:
+        return match.group(1)
+    else:
+        return str(text.strip().split(' ')[-1])
+
+
+def balance_date_strip(date_string: str):
+    date_object = datetime.strptime(date_string.strip(), "As of %b %Y")
+    _, last_day = monthrange(date_object.year, date_object.month)
+    last_date = date_object.replace(day=last_day)
+    return last_date.strftime("%Y-%m-%d")
 
 
 def setup_logging(verbose):
@@ -58,7 +73,7 @@ def date_format(date_str, logger):
         sys.exit(1)
 
 
-def process_file_monthly(file_path, logger):
+def process_file_monthly(file_path, logger, scenario):
     logger.info(f"Processing monthly file: {file_path}")
     try:
         # Gets date
@@ -73,14 +88,16 @@ def process_file_monthly(file_path, logger):
         df.columns = df.columns.str.strip()
 
         df = df.drop(0)
-        df.drop("Total", axis=1, inplace=True)
+        df.rename(columns={"Total": "Consol"}, inplace=True)
+
+        df.rename(columns={"ElectronX": "Holdings"}, inplace=True)
 
         df["Type"] = fill_type_column(df, logger)
         df = df.dropna(subset=df.columns[1:], how="all")
         df = df.reset_index(drop=True)
 
         df = df.melt(
-            id_vars=["Financial Row", "Type"], var_name=["Branch"], value_name="Value"
+            id_vars=["Financial Row", "Type"], var_name=["Entity"], value_name="Value"
         )
 
         df["Value"] = df["Value"].str.strip()
@@ -95,8 +112,10 @@ def process_file_monthly(file_path, logger):
 
         df.drop("Financial Row", axis=1, inplace=True)
         df["Date"] = date
+        df["Scenario"] = scenario
+        df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
 
-        df = df[["GL_Number", "Description", "Branch", "Type", "Date", "Value"]]
+        df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
         logger.info("File processing completed successfully")
         return df
     except Exception as e:
@@ -104,18 +123,20 @@ def process_file_monthly(file_path, logger):
         sys.exit(1)
 
 
-def process_file_dump(filename, logger):
+def process_file_dump(filename, logger, scenario):
     logger.info(f"Processing dump file: {filename}")
     df = pd.read_csv(filename, header=None)
-    branch = df.loc[0, 0]
-    logger.info(f"Extracted branch: {branch}")
+    Entity = df.iloc[1, 0].split(" ")[-1]
+    logger.info(f"Extracted Entity: {Entity}")
 
     df = pd.read_csv(filename, skiprows=6)
     logger.info("CSV file loaded successfully")
 
     df.columns = df.columns.str.strip()
     df.drop(0, inplace=True)
+    # df.drop("Total", axis=1, inplace=True)
     df.drop("Total", axis=1, inplace=True)
+    # df.rename(columns={"Total": "Consol"}, inplace=True)
 
     df["Type"] = fill_type_column(df, logger)
     df = df.dropna(subset=df.columns[1:], how="all")
@@ -138,36 +159,92 @@ def process_file_dump(filename, logger):
 
     df.drop("Financial Row", axis=1, inplace=True)
 
-    df["Branch"] = branch
-    df = df[["GL_Number", "Branch", "Description", "Type", "Date", "Value"]]
+    df["Entity"] = Entity
+
+    df["Entity"].loc[df["Entity"] == "ElectronX"] = "Holdings"
+    df["Scenario"] = scenario
+    df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
     df = df.reset_index(drop=True)
+    df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
     logger.info("File processing completed successfully")
     return df
+
+
+def process_balance_monthly(filename, logger, scenario):
+    df = pd.read_csv(filename, nrows=4, header=None)
+    # entity = extract_bracketed_word(df.iloc[1, 0])
+
+    date_object = datetime.strptime(
+        " ".join(str(df.iloc[3, 0]).split(" ")[-2:]), "%b %Y"
+    )
+    _, last_day = monthrange(date_object.year, date_object.month)
+    last_date = date_object.replace(day=last_day)
+    date = last_date.strftime("%Y-%m-%d")
+    date
+
+    df = pd.read_csv(filename, skiprows=6)
+    df.columns = df.columns.str.strip()
+
+    df.rename(
+        columns={"xElimination": "Elim", "ElectronX": "Holdings", "Total": "Consol"},
+        inplace=True,
+    )
+    df["Type"] = fill_type_column(df, logger)
+    df["Type"] = fill_type_column(df, logger)
+    df = df.dropna(subset=df.columns[1:], how="all")
+    df = df.reset_index(drop=True)
+
+    df = df.melt(
+        id_vars=["Financial Row", "Type"], var_name=["Entity"], value_name="Value"
+    )
+
+    df["Value"] = df["Value"].str.strip()
+    df = df[df["Value"] != "$0.00"]
+
+    df["GL_Number"] = df["Financial Row"].apply(
+        lambda x: int(x[0:5]) if x[0:5].isnumeric() else 0
+    )
+    df = df[df["GL_Number"] != 0]
+
+    df["Description"] = df["Financial Row"].apply(lambda x: str(x[8:]).strip())
+
+    df.drop("Financial Row", axis=1, inplace=True)
+    df["Date"] = date
+    df["Scenario"] = scenario
+    df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
+
+    df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
+    logger.info("File processing completed successfully")
+    return df
+
 
 
 def insert_into_db(df, db_config, logger):
     logger.info("Inserting data into database: finance-db-netsuite")
     conn = None
+    tpassword = getpass.getpass("Enter Database Password: ")
     try:
         conn = psycopg2.connect(
-                host=thost,
-                database=tdatabase,
-                user=tuser,
-                password=tpassword,
-                port=tport,
-            )
-        
+            host=thost,
+            database=tdatabase,
+            user=tuser,
+            password=tpassword,
+            port=tport,
+        )
+
         cursor = conn.cursor()
 
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS GL_Table (
+        CREATE TABLE IF NOT EXISTS Accounting_table (
             GL_Number INTEGER,
             Description TEXT,
-            Branch TEXT,
+            Entity TEXT,
             Type TEXT,
             Date TEXT,
             Value TEXT,
-            UNIQUE(GL_Number, Date, Branch, Value)
+            Scenario TEXT,
+            Timestamp TEXT,
+            UNIQUE(GL_Number, Date, Entity, Value)
         )
         """)
         logger.info("Table created or already exists")
@@ -176,18 +253,16 @@ def insert_into_db(df, db_config, logger):
 
         insert_query = sql.SQL("""
         INSERT INTO GL_Table 
-        (GL_Number, Description, Branch, Type, Date, Value)
-        VALUES (%(GL_Number)s, %(Description)s, %(Branch)s, %(Type)s, %(Date)s, %(Value)s)
-        ON CONFLICT (GL_Number, Date, Branch, Value) DO NOTHING
+        (GL_Number, Description, Entity, Type, Date, Value)
+        VALUES (%(GL_Number)s, %(Description)s, %(Entity)s, %(Type)s, %(Date)s, %(Value)s)
+        ON CONFLICT (GL_Number, Date, Entity, Value) DO NOTHING
         """)
 
         cursor.executemany(insert_query, data_to_insert)
 
         inserted_rows = cursor.rowcount
         conn.commit()
-        logger.info(
-            f"{inserted_rows} new records inserted into finance-db-netsuite"
-        )
+        logger.info(f"{inserted_rows} new records inserted into finance-db-netsuite")
 
     except psycopg2.Error as e:
         logger.error(f"PostgreSQL error: {e}")
@@ -198,6 +273,66 @@ def insert_into_db(df, db_config, logger):
     finally:
         if conn:
             conn.close()
+
+
+def process_balance_dump(filename, scenario, logger):
+    with open(filename, "r") as f:
+        max_columns = max(len(line.split(",")) for line in f)
+
+    # Generate column names
+    columns = [f"col_{i}" for i in range(max_columns)]
+
+    # Read the CSV with the maximum number of columns
+    df = pd.read_csv(
+        filename,
+        header=None,  # No header
+        names=columns,  # Use our generated column names
+        na_values=[""],  # Empty fields are NaN
+        keep_default_na=True,
+        on_bad_lines="skip",
+    )  # Skip lines that can't be parsed
+
+    entity = extract_bracketed_word(df.iloc[1, 0])
+
+    df = pd.read_csv(filename, skiprows=7)
+    df.columns = df.columns.str.strip()
+    df.drop(0, inplace=True)
+    df["Type"] = fill_type_column(df, logger)
+    df = df.dropna(subset=df.columns[1:], how="all")
+    df = df.reset_index(drop=True)
+    df = df.rename(columns={df.columns[0]: "Financial Row"})
+
+    df = df.melt(
+        id_vars=["Financial Row", "Type"], var_name=["Date"], value_name="Value"
+    )
+
+    df["Entity"] = entity
+    df["Date"] = df["Date"].apply(balance_date_strip)
+    df["Value"] = df["Value"].str.strip()
+    df = df[df["Value"] != "$0.00"]
+
+    df["GL_Number"] = df["Financial Row"].apply(
+        lambda x: int(x[0:5]) if x[0:5].isnumeric() else 0
+    )
+
+    df = df[df["GL_Number"] != 0]
+
+    df["Description"] = df["Financial Row"].apply(lambda x: str(x[8:]).strip())
+
+    df.drop("Financial Row", axis=1, inplace=True)
+
+    df["Entity"] = entity
+
+    df["Entity"].loc[df["Entity"] == "ElectronX"] = "Holdings"
+    df["Scenario"] = scenario
+    df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
+    df = df.reset_index(drop=True)
+    df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
+    logger.info("File processing completed successfully")
+
+
+    return df
+
 
 
 def main():
@@ -213,9 +348,9 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["monthly", "dump"],
-        default="monthly",
-        help="Processing mode: 'monthly' or 'dump'",
+        choices=["monthly-income", "dump-income", "dump-balance","monthly-balance"],
+        default="monthly-income",
+        help="Processing mode: 'monthly-income', 'dump-income', 'dump-balance or 'monthly-balance",
     )
     parser.add_argument(
         "--db", help="Path to the SQLite database file", default="finance_db_ex.sqlite"
@@ -223,6 +358,7 @@ def main():
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose logging"
     )
+    parser.add_argument("--scenario", help="Specify a scenario", default="Actual")
 
     args = parser.parse_args()
     logger = setup_logging(args.verbose)
@@ -238,12 +374,17 @@ def main():
         logger.error(f"File '{file_path}' not found.")
         sys.exit(1)
 
-    if args.mode == "monthly":
+    if args.mode == "monthly-income":
         logger.info("Processing in monthly mode")
-        df = process_file_monthly(file_path, logger)
-    else:  # args.mode == 'dump'
+        df = process_file_monthly(file_path, logger, args.scenario)
+    elif args.mode == "dump-income":
         logger.info("Processing in dump mode")
-        df = process_file_dump(file_path, logger)
+        df = process_file_dump(file_path, logger, args.scenario)
+    elif args.mode == "dump-balance":
+        df = process_balance_dump(file_path, logger, args.scenario)
+    elif args.mode == "monthly-balance":
+        df = process_balance_monthly(file_path, logger, args.scenario)
+    
 
     insert_into_db(df, args.db, logger)
     logger.info("Script execution completed successfully")
