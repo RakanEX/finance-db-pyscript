@@ -22,7 +22,7 @@ def extract_bracketed_word(text: str):
     if match:
         return match.group(1)
     else:
-        return str(text.strip().split(' ')[-1])
+        return str(text.strip().split(" ")[-1])
 
 
 def balance_date_strip(date_string: str):
@@ -115,7 +115,18 @@ def process_file_monthly(file_path, logger, scenario):
         df["Scenario"] = scenario
         df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
 
-        df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
+        df = df[
+            [
+                "GL_Number",
+                "Description",
+                "Entity",
+                "Type",
+                "Date",
+                "Value",
+                "Scenario",
+                "Timestamp",
+            ]
+        ]
         logger.info("File processing completed successfully")
         return df
     except Exception as e:
@@ -161,11 +172,22 @@ def process_file_dump(filename, logger, scenario):
 
     df["Entity"] = Entity
 
-    df["Entity"].loc[df["Entity"] == "ElectronX"] = "Holdings"
+    df.loc[df["Entity"] == "ElectronX", "Entity"] = "Holdings"
     df["Scenario"] = scenario
     df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
     df = df.reset_index(drop=True)
-    df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
+    df = df[
+        [
+            "GL_Number",
+            "Description",
+            "Entity",
+            "Type",
+            "Date",
+            "Value",
+            "Scenario",
+            "Timestamp",
+        ]
+    ]
     logger.info("File processing completed successfully")
     return df
 
@@ -213,10 +235,20 @@ def process_balance_monthly(filename, logger, scenario):
     df["Scenario"] = scenario
     df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
 
-    df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
+    df = df[
+        [
+            "GL_Number",
+            "Description",
+            "Entity",
+            "Type",
+            "Date",
+            "Value",
+            "Scenario",
+            "Timestamp",
+        ]
+    ]
     logger.info("File processing completed successfully")
     return df
-
 
 
 def insert_into_db(df, db_config, logger):
@@ -252,10 +284,15 @@ def insert_into_db(df, db_config, logger):
         data_to_insert = df.to_dict("records")
 
         insert_query = sql.SQL("""
-        INSERT INTO GL_Table 
-        (GL_Number, Description, Entity, Type, Date, Value)
-        VALUES (%(GL_Number)s, %(Description)s, %(Entity)s, %(Type)s, %(Date)s, %(Value)s)
-        ON CONFLICT (GL_Number, Date, Entity, Value) DO NOTHING
+        INSERT INTO Accounting_table 
+        (GL_Number, Description, Entity, Type, Date, Value, Scenario, Timestamp)
+        VALUES (%(GL_Number)s, %(Description)s, %(Entity)s, %(Type)s, %(Date)s, %(Value)s, %(Scenario)s, %(Timestamp)s)
+        ON CONFLICT (GL_Number, Date, Entity, Value) 
+        DO UPDATE SET 
+            Description = EXCLUDED.Description,
+            Type = EXCLUDED.Type,
+            Scenario = EXCLUDED.Scenario,
+            Timestamp = EXCLUDED.Timestamp
         """)
 
         cursor.executemany(insert_query, data_to_insert)
@@ -275,7 +312,7 @@ def insert_into_db(df, db_config, logger):
             conn.close()
 
 
-def process_balance_dump(filename, scenario, logger):
+def process_balance_dump(filename, logger, scenario):
     with open(filename, "r") as f:
         max_columns = max(len(line.split(",")) for line in f)
 
@@ -323,16 +360,25 @@ def process_balance_dump(filename, scenario, logger):
 
     df["Entity"] = entity
 
-    df["Entity"].loc[df["Entity"] == "ElectronX"] = "Holdings"
+    df.loc[df["Entity"] == "ElectronX", "Entity"] = "Holdings"
     df["Scenario"] = scenario
     df["Timestamp"] = datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
     df = df.reset_index(drop=True)
-    df = df[["GL_Number", "Description", "Entity", "Type", "Date", "Value","Scenario","Timestamp"]]
+    df = df[
+        [
+            "GL_Number",
+            "Description",
+            "Entity",
+            "Type",
+            "Date",
+            "Value",
+            "Scenario",
+            "Timestamp",
+        ]
+    ]
     logger.info("File processing completed successfully")
 
-
     return df
-
 
 
 def main():
@@ -348,7 +394,7 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["monthly-income", "dump-income", "dump-balance","monthly-balance"],
+        choices=["monthly-income", "dump-income", "dump-balance", "monthly-balance"],
         default="monthly-income",
         help="Processing mode: 'monthly-income', 'dump-income', 'dump-balance or 'monthly-balance",
     )
@@ -384,7 +430,6 @@ def main():
         df = process_balance_dump(file_path, logger, args.scenario)
     elif args.mode == "monthly-balance":
         df = process_balance_monthly(file_path, logger, args.scenario)
-    
 
     insert_into_db(df, args.db, logger)
     logger.info("Script execution completed successfully")
