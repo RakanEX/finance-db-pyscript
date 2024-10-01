@@ -62,18 +62,18 @@ def fill_type_column(df, logger):
 
 def date_format(date_str, logger):
     try:
-        date_obj = datetime.strptime(date_str, "%b-%y")
+        date_obj = datetime.strptime(date_str, "%b %Y")
         _, last_day = monthrange(date_obj.year, date_obj.month)
         last_date = date_obj.replace(day=last_day)
         return last_date.strftime("%Y-%m-%d")
     except ValueError:
         logger.error(
-            f"Invalid date format in the file. Expected 'Mon-YY', got '{date_str}'"
+            f"Invalid date format in the file. Expected 'Mon YYYY', got '{date_str}'"
         )
         sys.exit(1)
 
 
-def process_file_monthly(file_path, logger, scenario):
+def process_income_monthly(file_path, logger, scenario):
     logger.info(f"Processing monthly file: {file_path}")
     try:
         # Gets date
@@ -134,10 +134,12 @@ def process_file_monthly(file_path, logger, scenario):
         sys.exit(1)
 
 
-def process_file_dump(filename, logger, scenario):
+def process_income_dump(filename, logger, scenario):
     logger.info(f"Processing dump file: {filename}")
-    df = pd.read_csv(filename, header=None)
+    df = pd.read_csv(filename,header=None,nrows=2)
     Entity = df.iloc[1, 0].split(" ")[-1]
+    if Entity == "Co":
+        Entity = "Tech"
     logger.info(f"Extracted Entity: {Entity}")
 
     df = pd.read_csv(filename, skiprows=6)
@@ -254,7 +256,11 @@ def process_balance_monthly(filename, logger, scenario):
 def insert_into_db(df, db_config, logger):
     logger.info("Inserting data into database: finance-db-netsuite")
     conn = None
-    tpassword = getpass.getpass("Enter Database Password: ")
+
+    tpassword = os.environ.get('FINANCE_DB_PASS')
+    if tpassword is None:
+        tpassword = getpass.getpass("Enter Database Password: ")
+    
     try:
         conn = psycopg2.connect(
             host=thost,
@@ -422,10 +428,10 @@ def main():
 
     if args.mode == "monthly-income":
         logger.info("Processing in monthly mode")
-        df = process_file_monthly(file_path, logger, args.scenario)
+        df = process_income_monthly(file_path, logger, args.scenario)
     elif args.mode == "dump-income":
         logger.info("Processing in dump mode")
-        df = process_file_dump(file_path, logger, args.scenario)
+        df = process_income_dump(file_path, logger, args.scenario)
     elif args.mode == "dump-balance":
         df = process_balance_dump(file_path, logger, args.scenario)
     elif args.mode == "monthly-balance":
