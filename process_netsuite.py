@@ -210,6 +210,7 @@ def process_income_dump(filename, logger, scenario):
     ]
     logger.info("File processing completed successfully")
 
+    return df
 
 def process_balance_monthly(filename, logger, scenario):
     df = pd.read_csv(filename, nrows=4, header=None)
@@ -273,6 +274,8 @@ def process_balance_monthly(filename, logger, scenario):
 def insert_into_db(df, db_config, logger):
     logger.info("Inserting data into database: finance-db-netsuite")
     conn = None
+
+    print(df)
 
     tpassword = os.environ.get("FINANCE_DB_PASS")
     if tpassword is None:
