@@ -136,19 +136,37 @@ def process_income_monthly(file_path, logger, scenario):
 
 def process_income_dump(filename, logger, scenario):
     logger.info(f"Processing dump file: {filename}")
-    df = pd.read_csv(filename,header=None,nrows=2)
-    Entity = df.iloc[1, 0].split(" ")[-1]
-    if Entity == "Co":
-        Entity = "Tech"
-    logger.info(f"Extracted Entity: {Entity}")
+    with open(filename, "r") as f:
+        max_columns = max(len(line.split(",")) for line in f)
 
-    df = pd.read_csv(filename, skiprows=6)
+    # Generate column names
+    columns = [f"col_{i}" for i in range(max_columns)]
+
+    # Read the CSV with the maximum number of columns
+    df = pd.read_csv(
+        filename,
+        header=None,  # No header
+        names=columns,  # Use our generated column names
+        na_values=[""],  # Empty fields are NaN
+        keep_default_na=True,
+        on_bad_lines="skip",
+    )  # Skip lines that can't be parsed
+
+    entity = extract_bracketed_word(df.iloc[1, 0])
+    entity
+    if entity == "Co":
+        entity = "Tech"
+    logger.info(f"Extracted Entity: {entity}")
+
+    df = pd.read_csv(filename, skiprows=7)
+    df = df.rename(columns={df.columns[0]: "Financial Row"})
+
     logger.info("CSV file loaded successfully")
 
     df.columns = df.columns.str.strip()
     df.drop(0, inplace=True)
     # df.drop("Total", axis=1, inplace=True)
-    df.drop("Total", axis=1, inplace=True)
+    df.drop("Total", axis=1, inplace=True, errors="ignore")
     # df.rename(columns={"Total": "Consol"}, inplace=True)
 
     df["Type"] = fill_type_column(df, logger)
@@ -172,7 +190,7 @@ def process_income_dump(filename, logger, scenario):
 
     df.drop("Financial Row", axis=1, inplace=True)
 
-    df["Entity"] = Entity
+    df["Entity"] = entity
 
     df.loc[df["Entity"] == "ElectronX", "Entity"] = "Holdings"
     df["Scenario"] = scenario
@@ -191,7 +209,6 @@ def process_income_dump(filename, logger, scenario):
         ]
     ]
     logger.info("File processing completed successfully")
-    return df
 
 
 def process_balance_monthly(filename, logger, scenario):
@@ -257,10 +274,10 @@ def insert_into_db(df, db_config, logger):
     logger.info("Inserting data into database: finance-db-netsuite")
     conn = None
 
-    tpassword = os.environ.get('FINANCE_DB_PASS')
+    tpassword = os.environ.get("FINANCE_DB_PASS")
     if tpassword is None:
         tpassword = getpass.getpass("Enter Database Password: ")
-    
+
     try:
         conn = psycopg2.connect(
             host=thost,
@@ -272,7 +289,8 @@ def insert_into_db(df, db_config, logger):
 
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
         CREATE TABLE IF NOT EXISTS Accounting_table (
             GL_Number INTEGER,
             Description TEXT,
@@ -284,12 +302,14 @@ def insert_into_db(df, db_config, logger):
             Timestamp TEXT,
             UNIQUE(GL_Number, Date, Entity, Value)
         )
-        """)
+        """
+        )
         logger.info("Table created or already exists")
 
         data_to_insert = df.to_dict("records")
 
-        insert_query = sql.SQL("""
+        insert_query = sql.SQL(
+            """
         INSERT INTO Accounting_table 
         (GL_Number, Description, Entity, Type, Date, Value, Scenario, Timestamp)
         VALUES (%(GL_Number)s, %(Description)s, %(Entity)s, %(Type)s, %(Date)s, %(Value)s, %(Scenario)s, %(Timestamp)s)
@@ -299,7 +319,8 @@ def insert_into_db(df, db_config, logger):
             Type = EXCLUDED.Type,
             Scenario = EXCLUDED.Scenario,
             Timestamp = EXCLUDED.Timestamp
-        """)
+        """
+        )
 
         cursor.executemany(insert_query, data_to_insert)
 
