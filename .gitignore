@@ -5,7 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
-
+*.zip
 # Distribution / packaging
 .Python
 build/
@@ -168,3 +168,4 @@ cython_debug/
 #.idea/
 
 test.ipynb
+.DS_Store

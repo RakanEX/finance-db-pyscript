@@ -12,7 +12,7 @@ Based on the code changes, here's an updated README:
 
 Basic usage:
 ```
-python3 process_netsuite.py your_file.csv [options]
+python3 process_netsuite.py file1.csv [file2.csv ...] [options]
 ```
 
 Flags:
@@ -20,35 +20,35 @@ Flags:
 - `-d` or `--directory`: Sets the current directory as the script directory
 
 - `--mode`: Choose "monthly-income", "dump-income", "monthly-balance", or "dump-balance" (default is "monthly-income")
-  Example: `python process_netsuite.py file.csv --mode dump-income`
+  Example: `python process_netsuite.py file1.csv file2.csv --mode dump-income`
 
 - `-v` or `--verbose`: Verbose -- will display logging
 
 - `--scenario`: Specify a scenario (default is "Actual")
-  Example: `python process_netsuite.py file.csv --scenario Budget`
+  Example: `python process_netsuite.py file1.csv file2.csv --scenario Budget`
 
 Currently only takes in CSV files
 
 ## Examples:
 
-Process a monthly income statement file:
+Process multiple monthly income statement files:
 ```
-python3 process_netsuite.py 'new month upload file.csv' --mode monthly-income -v
-```
-
-Process a dump income statement file (containing multiple months):
-```
-python process_netsuite.py 'Income Statement Dump from Netsuite (Holdings).csv' --mode dump-income
+python3 process_netsuite.py 'jan.csv' 'feb.csv' 'mar.csv' --mode monthly-income -v
 ```
 
-Process a monthly balance sheet file:
+Process multiple dump income statement files:
 ```
-python3 process_netsuite.py 'monthly balance sheet.csv' --mode monthly-balance -v
+python process_netsuite.py 'Holdings.csv' 'Tech.csv' --mode dump-income
 ```
 
-Process a dump balance sheet file:
+Process multiple monthly balance sheet files:
 ```
-python process_netsuite.py 'Balance Sheet Dump.csv' --mode dump-balance
+python3 process_netsuite.py 'balance_jan.csv' 'balance_feb.csv' --mode monthly-balance -v
+```
+
+Process multiple dump balance sheet files:
+```
+python process_netsuite.py 'Balance_Holdings.csv' 'Balance_Tech.csv' --mode dump-balance
 ```
 
 ## Database Connection

@@ -9,6 +9,7 @@ import psycopg2
 from psycopg2 import sql
 import getpass
 import re
+from dotenv import load_dotenv
 
 thost = "10.205.240.3"
 tdatabase = "postgres"
@@ -130,7 +131,7 @@ def process_income_monthly(file_path, logger, scenario):
         logger.info("File processing completed successfully")
         return df
     except Exception as e:
-        logger.error(f"Error processing file: {e}")
+        logger.error(f"Error processing file {file_path}: {e}")
         sys.exit(1)
 
 
@@ -277,6 +278,9 @@ def insert_into_db(df, db_config, logger):
 
     print(df)
 
+    
+    load_dotenv()
+
     tpassword = os.environ.get("FINANCE_DB_PASS")
     if tpassword is None:
         tpassword = getpass.getpass("Enter Database Password: ")
@@ -413,9 +417,9 @@ def process_balance_dump(filename, logger, scenario):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process GL file and insert into SQLite database."
+        description="Process GL file(s) and insert into SQLite database."
     )
-    parser.add_argument("filename", help="Name of the CSV file to process")
+    parser.add_argument("filenames", nargs='+', help="Name(s) of the CSV file(s) to process. Supports glob patterns (e.g., ./folder/*.csv)")
     parser.add_argument(
         "-d",
         "--directory",
@@ -425,8 +429,8 @@ def main():
     parser.add_argument(
         "--mode",
         choices=["monthly-income", "dump-income", "dump-balance", "monthly-balance"],
-        default="monthly-income",
-        help="Processing mode: 'monthly-income', 'dump-income', 'dump-balance or 'monthly-balance",
+        required=True,
+        help="Processing mode: 'monthly-income', 'dump-income', 'dump-balance' or 'monthly-balance'"
     )
     parser.add_argument(
         "--db", help="Path to the SQLite database file", default="finance_db_ex.sqlite"
@@ -444,24 +448,33 @@ def main():
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
         logger.info(f"Changed working directory to: {os.getcwd()}")
 
-    file_path = os.path.join(os.getcwd(), args.filename)
+    # Process each file
+    for filename in args.filenames:
+        file_path = os.path.join(os.getcwd(), filename)
+        logger.info(f"Processing file: {filename}")
 
-    if not os.path.exists(file_path):
-        logger.error(f"File '{file_path}' not found.")
-        sys.exit(1)
+        if not os.path.exists(file_path):
+            logger.error(f"File '{file_path}' not found. Skipping.")
+            continue
 
-    if args.mode == "monthly-income":
-        logger.info("Processing in monthly mode")
-        df = process_income_monthly(file_path, logger, args.scenario)
-    elif args.mode == "dump-income":
-        logger.info("Processing in dump mode")
-        df = process_income_dump(file_path, logger, args.scenario)
-    elif args.mode == "dump-balance":
-        df = process_balance_dump(file_path, logger, args.scenario)
-    elif args.mode == "monthly-balance":
-        df = process_balance_monthly(file_path, logger, args.scenario)
+        try:
+            if args.mode == "monthly-income":
+                logger.info("Processing in monthly mode")
+                df = process_income_monthly(file_path, logger, args.scenario)
+            elif args.mode == "dump-income":
+                logger.info("Processing in dump mode")
+                df = process_income_dump(file_path, logger, args.scenario)
+            elif args.mode == "dump-balance":
+                df = process_balance_dump(file_path, logger, args.scenario)
+            elif args.mode == "monthly-balance":
+                df = process_balance_monthly(file_path, logger, args.scenario)
 
-    insert_into_db(df, args.db, logger)
+            insert_into_db(df, args.db, logger)
+            logger.info(f"Successfully processed file: {filename}")
+        except Exception as e:
+            logger.error(f"Error processing file {filename}: {e}")
+            continue
+
     logger.info("Script execution completed successfully")
 
 
