@@ -89,7 +89,7 @@ def process_income_monthly(file_path, logger, scenario):
         df.columns = df.columns.str.strip()
 
         df = df.drop(0)
-        df.rename(columns={"Total": "Consol"}, inplace=True)
+        df.rename(columns={"Total": "Consolidated"}, inplace=True)
 
         df.rename(columns={"ElectronX": "Holdings"}, inplace=True)
         df.rename(columns={"Tech Co": "Tech"}, inplace=True)
@@ -230,7 +230,7 @@ def process_balance_monthly(filename, logger, scenario):
     df.columns = df.columns.str.strip()
 
     df.rename(
-        columns={"xElimination": "Elim", "ElectronX": "Holdings", "Total": "Consol"},
+        columns={"xElimination": "Elim", "ElectronX": "Holdings", "Total": "Consolidated"},
         inplace=True,
     )
     df["Type"] = fill_type_column(df, logger)
