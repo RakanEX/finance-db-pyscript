@@ -92,6 +92,7 @@ def process_income_monthly(file_path, logger, scenario):
         df.rename(columns={"Total": "Consol"}, inplace=True)
 
         df.rename(columns={"ElectronX": "Holdings"}, inplace=True)
+        df.rename(columns={"Tech Co": "Tech"}, inplace=True)
 
         df["Type"] = fill_type_column(df, logger)
         df = df.dropna(subset=df.columns[1:], how="all")
