@@ -27,7 +27,23 @@ Flags:
 - `--scenario`: Specify a scenario (default is "Actual")
   Example: `python process_netsuite.py file1.csv file2.csv --scenario Budget`
 
+- `--mapping-file`: Path to Excel file with entity name mappings (default is "entity_mappings.xlsx")
+  Example: `python process_netsuite.py file1.csv --mapping-file custom_mappings.xlsx`
+
 Currently only takes in CSV files
+
+## Entity Mapping
+
+The script uses an Excel file to map entity names. By default, it looks for "entity_mappings.xlsx" in the current directory.
+
+The Excel file should have the following structure:
+- Four sheets named: "monthly-income", "dump-income", "monthly-balance", "dump-balance"
+- Each sheet should have two columns: "Original" and "Mapped"
+
+To create a default mapping file, run the included script:
+```
+python create_default_mappings.py
+```
 
 ## Examples:
 
@@ -62,3 +78,4 @@ You must be connected to the tailscale to connect successfully
 - The script now uses a PostgreSQL database instead of SQLite
 - The database table structure has been updated to include new fields like Scenario and Timestamp
 - Error handling and logging have been improved for better debugging
+- Entity name mapping is now handled through an external Excel file

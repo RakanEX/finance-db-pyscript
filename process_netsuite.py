@@ -74,7 +74,41 @@ def date_format(date_str, logger):
         sys.exit(1)
 
 
-def process_income_monthly(file_path, logger, scenario):
+def load_entity_mappings(mapping_file, logger):
+    """Load entity name mappings from an Excel file."""
+    try:
+        if not os.path.exists(mapping_file):
+            logger.warning(f"Mapping file {mapping_file} not found. Using default mappings.")
+            return {
+                'monthly-income': {'ElectronX': 'Holdings', 'Tech Co': 'Tech'},
+                'dump-income': {'ElectronX': 'Holdings', 'Co': 'Tech'},
+                'monthly-balance': {'ElectronX': 'Holdings', 'xElimination': 'Elim', 'Total': 'Consolidated'},
+                'dump-balance': {'ElectronX': 'Holdings'}
+            }
+        
+        mappings = {}
+        df = pd.read_excel(mapping_file, sheet_name=None)
+        
+        for sheet_name, sheet_df in df.items():
+            if sheet_name in ['monthly-income', 'dump-income', 'monthly-balance', 'dump-balance']:
+                mappings[sheet_name] = {}
+                for _, row in sheet_df.iterrows():
+                    if not pd.isna(row['Original']) and not pd.isna(row['Mapped']):
+                        mappings[sheet_name][row['Original']] = row['Mapped']
+        
+        logger.info(f"Loaded entity mappings from {mapping_file}")
+        return mappings
+    except Exception as e:
+        logger.error(f"Error loading entity mappings: {e}")
+        return {
+            'monthly-income': {'ElectronX': 'Holdings', 'Tech Co': 'Tech'},
+            'dump-income': {'ElectronX': 'Holdings', 'Co': 'Tech'},
+            'monthly-balance': {'ElectronX': 'Holdings', 'xElimination': 'Elim', 'Total': 'Consolidated'},
+            'dump-balance': {'ElectronX': 'Holdings'}
+        }
+
+
+def process_income_monthly(file_path, logger, scenario, entity_mappings):
     logger.info(f"Processing monthly file: {file_path}")
     try:
         # Gets date
@@ -89,10 +123,11 @@ def process_income_monthly(file_path, logger, scenario):
         df.columns = df.columns.str.strip()
 
         df = df.drop(0)
-        df.rename(columns={"Total": "Consolidated"}, inplace=True)
-
-        df.rename(columns={"ElectronX": "Holdings"}, inplace=True)
-        df.rename(columns={"Tech Co": "Tech"}, inplace=True)
+        
+        # Apply entity mappings from the external file
+        for original, mapped in entity_mappings.items():
+            if original in df.columns:
+                df.rename(columns={original: mapped}, inplace=True)
 
         df["Type"] = fill_type_column(df, logger)
         df = df.dropna(subset=df.columns[1:], how="all")
@@ -136,7 +171,7 @@ def process_income_monthly(file_path, logger, scenario):
         sys.exit(1)
 
 
-def process_income_dump(filename, logger, scenario):
+def process_income_dump(filename, logger, scenario, entity_mappings):
     logger.info(f"Processing dump file: {filename}")
     with open(filename, "r") as f:
         max_columns = max(len(line.split(",")) for line in f)
@@ -155,9 +190,11 @@ def process_income_dump(filename, logger, scenario):
     )  # Skip lines that can't be parsed
 
     entity = extract_bracketed_word(df.iloc[1, 0])
-    entity
-    if entity == "Co":
-        entity = "Tech"
+    
+    # Apply entity mapping if available
+    if entity in entity_mappings:
+        entity = entity_mappings[entity]
+    
     logger.info(f"Extracted Entity: {entity}")
 
     df = pd.read_csv(filename, skiprows=7)
@@ -214,7 +251,7 @@ def process_income_dump(filename, logger, scenario):
 
     return df
 
-def process_balance_monthly(filename, logger, scenario):
+def process_balance_monthly(filename, logger, scenario, entity_mappings):
     df = pd.read_csv(filename, nrows=4, header=None)
     # entity = extract_bracketed_word(df.iloc[1, 0])
 
@@ -229,11 +266,11 @@ def process_balance_monthly(filename, logger, scenario):
     df = pd.read_csv(filename, skiprows=6)
     df.columns = df.columns.str.strip()
 
-    df.rename(
-        columns={"xElimination": "Elim", "ElectronX": "Holdings", "Total": "Consolidated"},
-        inplace=True,
-    )
-    df["Type"] = fill_type_column(df, logger)
+    # Apply entity mappings from the external file
+    for original, mapped in entity_mappings.items():
+        if original in df.columns:
+            df.rename(columns={original: mapped}, inplace=True)
+    
     df["Type"] = fill_type_column(df, logger)
     df = df.dropna(subset=df.columns[1:], how="all")
     df = df.reset_index(drop=True)
@@ -347,7 +384,7 @@ def insert_into_db(df, db_config, logger):
             conn.close()
 
 
-def process_balance_dump(filename, logger, scenario):
+def process_balance_dump(filename, logger, scenario, entity_mappings):
     with open(filename, "r") as f:
         max_columns = max(len(line.split(",")) for line in f)
 
@@ -365,6 +402,12 @@ def process_balance_dump(filename, logger, scenario):
     )  # Skip lines that can't be parsed
 
     entity = extract_bracketed_word(df.iloc[1, 0])
+    
+    # Apply entity mapping if available
+    if entity in entity_mappings:
+        entity = entity_mappings[entity]
+    
+    logger.info(f"Extracted Entity: {entity}")
 
     df = pd.read_csv(filename, skiprows=7)
     df.columns = df.columns.str.strip()
@@ -440,6 +483,11 @@ def main():
         "-v", "--verbose", action="store_true", help="Enable verbose logging"
     )
     parser.add_argument("--scenario", help="Specify a scenario", default="Actual")
+    parser.add_argument(
+        "--mapping-file", 
+        help="Path to Excel file with entity name mappings", 
+        default="entity_mappings.xlsx"
+    )
 
     args = parser.parse_args()
     logger = setup_logging(args.verbose)
@@ -448,6 +496,12 @@ def main():
     if args.directory:
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
         logger.info(f"Changed working directory to: {os.getcwd()}")
+    
+    # Load entity mappings from Excel file
+    mapping_file = args.mapping_file
+    all_mappings = load_entity_mappings(mapping_file, logger)
+    entity_mappings = all_mappings.get(args.mode, {})
+    logger.info(f"Using entity mappings for mode {args.mode}: {entity_mappings}")
 
     # Process each file
     for filename in args.filenames:
@@ -461,14 +515,14 @@ def main():
         try:
             if args.mode == "monthly-income":
                 logger.info("Processing in monthly mode")
-                df = process_income_monthly(file_path, logger, args.scenario)
+                df = process_income_monthly(file_path, logger, args.scenario, entity_mappings)
             elif args.mode == "dump-income":
                 logger.info("Processing in dump mode")
-                df = process_income_dump(file_path, logger, args.scenario)
+                df = process_income_dump(file_path, logger, args.scenario, entity_mappings)
             elif args.mode == "dump-balance":
-                df = process_balance_dump(file_path, logger, args.scenario)
+                df = process_balance_dump(file_path, logger, args.scenario, entity_mappings)
             elif args.mode == "monthly-balance":
-                df = process_balance_monthly(file_path, logger, args.scenario)
+                df = process_balance_monthly(file_path, logger, args.scenario, entity_mappings)
 
             insert_into_db(df, args.db, logger)
             logger.info(f"Successfully processed file: {filename}")
